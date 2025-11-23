@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/require-await */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import {
   Injectable,
   NotFoundException,
@@ -5,30 +7,39 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
-import jwt from 'jsonwebtoken';
+import { UserService } from '../user/user.service';
+import { JwtService } from '@nestjs/jwt';
+import { JwtPayload } from './interface/jwt-payload.interface';
+import { User } from 'generated/prisma/client';
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly userService: UserService,
+    private readonly jwtService: JwtService,
+  ) {}
 
-  async login(payload: LoginDto) {
-    const { email, password } = payload;
+  async validateUser(email: string, password: string): Promise<any> {
+    const user = await this.userService.findByEmail(email);
+    if (!user) {
+      throw new NotFoundException('User not found from auth guard');
+    }
 
-    const isUserExist = await this.prisma.user.findUnique({ where: { email } });
+    if (user.password !== password) {
+      throw new UnauthorizedException('Password not match from auth guard');
+    }
 
-    if (!isUserExist) throw new NotFoundException('User not found!');
+    return user;
+  }
 
-    if (isUserExist.password !== password)
-      throw new UnauthorizedException('Password did not match!');
+  async login(user: User) {
+    const payload = { email: user.email, sub: user.id, role: user.role };
 
-    const jwtPayload = {
-      id: isUserExist.id,
-      email: isUserExist.email,
-      name: isUserExist.name,
-    };
+    const jwtPayload: JwtPayload = payload;
 
-    const token = jwt.sign(jwtPayload, 'arif@210505', { expiresIn: '1h' });
+    const token = this.jwtService.sign(jwtPayload);
 
-    return token;
+    return { access_token: token };
   }
 }
